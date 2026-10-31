@@ -31,6 +31,8 @@ evaluation/scoreboard.csv
 # into actually exists in a fresh clone. Everything they put in it stays out of git.
 data/*
 !data/README.md
+data_DO_NOT_PUT_DATA_HERE/*
+!data_DO_NOT_PUT_DATA_HERE/README.md
 
 *.mp4
 *.gzip

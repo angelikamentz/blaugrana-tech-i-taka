@@ -1,0 +1,8 @@
+# Optional. Only for evaluation/dashboard.py, the interactive view of the scoreboard:
+#
+#     pip install -r requirements-dashboard.txt
+#     streamlit run evaluation/dashboard.py
+-r requirements.txt
+
+streamlit>=1.66
+plotly>=7
