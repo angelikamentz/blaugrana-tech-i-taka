@@ -38,6 +38,25 @@ data_DO_NOT_PUT_DATA_HERE/*
 *.gzip
 *.pl3container
 
+# Extracts of the data are data too. Pipeline intermediates belong in the data directory, never in
+# the repo; these catch the usual cache formats if one lands here anyway.
+*.npy
+*.npz
+*.parquet
+*.pkl
+*.pickle
+*.feather
+*.h5
+*.hdf5
+*.joblib
+*.arrow
+
+# -- Claude Code -------------------------------------------------------------------------------
+# .claude/settings.json and .claude/hooks/ are committed: they are the data guard. Personal
+# overrides and the guard's log of blocked calls are not.
+.claude/settings.local.json
+.claude/hooks/guard.log
+
 # -- internal documents ---------------------------------------------------------------------------
 # OVERVIEW.md -- the institutional description of the competition -- IS committed. It is the only
 # place that explains why the format changed from 2026, and a document like that circulating by

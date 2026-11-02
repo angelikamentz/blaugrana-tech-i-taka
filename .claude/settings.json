@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./data/**)",
+      "Read(./data_DO_NOT_PUT_DATA_HERE/**)",
+      "Read(**/*.mp4)",
+      "Read(**/*_atd.txt)",
+      "Read(**/*_atd.xml)",
+      "Read(**/*_homography.csv)",
+      "Read(**/*_smart_tagging.xml)",
+      "Read(**/*_possession_gt.csv)",
+      "Read(**/*_possession_gt_meta.json)",
+      "Read(**/*_possession_gt_reference.csv)",
+      "Edit(./data/**)",
+      "Edit(./data_DO_NOT_PUT_DATA_HERE/**)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./.claude/settings.local.json)",
+      "Edit(./.claude/hooks/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_data.py\"",
+            "timeout": 15,
+            "onFailure": "block",
+            "statusMessage": "Data guard"
+          }
+        ]
+      }
+    ]
+  }
+}

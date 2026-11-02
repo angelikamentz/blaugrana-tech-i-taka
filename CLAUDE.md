@@ -20,6 +20,31 @@ any extract of them) available to a hosted LLM. That includes Claude.
     stats, categories. Never print raw rows, coordinates or frame-level tracking.
   - Then ask the user to paste back only what's needed. Don't ask for raw data.
 - If you're unsure whether something counts as data, ask before opening it.
+- Pipeline intermediates derived from the data (features, caches, `.npy` / `.parquet` / `.pkl`)
+  go under the data directory, never in the repo.
+
+### The guard enforces this
+
+`.claude/hooks/guard_data.py` runs before every tool call (`.claude/settings.json`). It denies:
+- the data, by folder and by file name
+- anything outside this repo, except Claude Code's own memory and scratchpad folders
+- shell commands that run the loaders or walk the repo root recursively
+- edits to the guard and its settings
+
+`games.asset_paths()` also raises when `CLAUDECODE` is set. When the guard blocks a call, don't
+look for another route. Write the script for the user, or ask. Only the user edits the guard.
+Blocked calls are logged to `.claude/hooks/guard.log`.
+
+### Where the data lives
+
+`MTAH_DATA_DIR` holds the path. The user sets it once as a user environment variable, in their
+own terminal, then restarts Claude Code and their IDE:
+
+```powershell
+setx MTAH_DATA_DIR "D:\path\to\mtah2027"
+```
+
+Never set it yourself, never ask for the path, and never put it in a committed file.
 
 Fine to read:
 - the docs and code

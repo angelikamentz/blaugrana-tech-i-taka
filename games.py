@@ -127,11 +127,24 @@ def asset_paths(game=GAME, data_dir=None, source=DEFAULT_SOURCE):
 
     The paths are not checked for existence -- see require() for that.
     """
+    _refuse_under_claude_code()
     root = data_dir or DATA_DIR
     entry = _source(game, source)
     folder = os.path.join(root, source)
     return {name: os.path.join(folder, entry["stem"] + SUFFIXES[name])
             for name in entry["assets"]}
+
+
+def _refuse_under_claude_code():
+    """The competition terms forbid giving the match data to a hosted LLM. Claude Code sets
+    CLAUDECODE=1 in every process it starts, so anything that reaches for the data from inside a
+    Claude Code session -- a tool call or a `!` command, whose output lands in the conversation --
+    stops here. Run data scripts in your own terminal instead. The evaluation never gets here: it
+    reads only CSVs."""
+    if os.environ.get("CLAUDECODE"):
+        raise RuntimeError(
+            "games.asset_paths() refuses to run inside Claude Code: the match data must not reach "
+            "a hosted LLM. Run this script in your own terminal and share only aggregates.")
 
 
 def _source(game, source):
