@@ -353,8 +353,10 @@ These are suggestions to keep stages independent. Change them freely.
 
 - **One key everywhere:** `frame` = video frame, 0-based, int32. Every per-frame table has one row
   per frame and never drops rows (missing = NaN), so tables join on `frame` without surprises.
-- **One folder per game, one file per stage,** e.g. `cache/<game>/{loaded,synced,clean,features}.parquet`,
-  in a gitignored folder or outside the repo. Each stage reads only the previous stage's file.
+- **One folder per game, one file per stage,** e.g.
+  `<MTAH_DATA_DIR>/cache/<game>/{loaded,synced,clean,features}.parquet`. Intermediates are extracts
+  of the data, so they live under the data directory, never in the repo (`CLAUDE.md`). Each stage
+  reads only the previous stage's file.
 - **Trained model folder:** `artifacts/<run_name>/`, containing the model file, the exact feature
   list, the config, and validation metrics.
 - **Types:** float32 for measurements, bool for flags, categories for team and labels.

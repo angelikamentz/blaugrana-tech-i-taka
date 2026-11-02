@@ -67,4 +67,8 @@ python evaluation/run_evaluation.py                       # score everything in 
 python evaluation/validate_submission.py <file>.csv       # before every submission
 python evaluation/problems.py                             # per-run lists of wrong stretches
 streamlit run evaluation/dashboard.py                     # visual scoreboard (requirements-dashboard.txt)
+
+# The user runs these in their own terminal (they read the data). Never run them yourself.
+python inspection/inspect_data.py                         # data report, aggregates only: safe to paste back
+streamlit run inspection/dashboard.py                     # data dashboard, user's eyes only (requirements-inspection.txt)
 ```

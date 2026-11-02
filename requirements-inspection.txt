@@ -1,0 +1,13 @@
+# Optional. Only for inspection/ -- the data-inspection report and dashboard:
+#
+#     pip install -r requirements-inspection.txt
+#     python inspection/inspect_data.py
+#     streamlit run inspection/dashboard.py
+#
+# OpenCV is only needed for the video views and the video section of the report; imageio-ffmpeg
+# (which ships its own ffmpeg binary) only for rendering the video + pitch clips. Everything else
+# works without them.
+-r requirements-dashboard.txt
+
+opencv-python-headless
+imageio-ffmpeg
