@@ -94,6 +94,12 @@ ALLOWED_ROOTS_N = [
     _norm(os.path.join(HOME, ".claude", "projects", SLUG)),
     _norm(os.path.join(tempfile.gettempdir(), "claude", SLUG)),
 ]
+# On macOS and Linux, Claude Code puts its scratchpad under /tmp/claude-<uid>/ (on macOS that is
+# /private/tmp), not under tempfile.gettempdir() (/var/folders/... on macOS). The desktop app can
+# also name the folder after a pre-started session instead of the project, so allow the whole
+# per-user root. The data checks above still apply inside it.
+if hasattr(os, "getuid"):
+    ALLOWED_ROOTS_N.append(_norm("/tmp/claude-{}".format(os.getuid())))
 # Read-only: installed skills and plugins, whose reference files skills sometimes point at.
 READ_ONLY_ROOTS_N = [
     _norm(os.path.join(HOME, ".claude", "skills")),
