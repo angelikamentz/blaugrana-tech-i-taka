@@ -1,0 +1,14 @@
+# Everything pipeline/ needs, on top of the inspection tools it reuses.
+#
+#     pip install -r requirements-pipeline.txt
+#
+# kloppy downloads and parses the IDSSE matches (pipeline/idsse.py); scikit-learn fits the v2
+# dead-ball model (pipeline/dead_model.py). Pin exact versions once the submission is frozen, so
+# the repository regenerates the same file.
+# Only the base requirements: the pipeline reuses inspection/loaders.py, which needs numpy and
+# pandas alone. The dashboards' streamlit (Python >= 3.11) is not needed here.
+-r requirements.txt
+
+kloppy==3.18.0
+scikit-learn
+joblib
