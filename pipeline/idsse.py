@@ -8,10 +8,12 @@ doi 10.1038/s41597-025-04505-y; data on Hugging Face, pysport/idsse-data). Offic
 25 fps, with a per-frame ball status (alive / dead) and the team in possession: the same kind of
 label as our ground truth. It is about other games, so the rules allow training on it.
 
-Downloads go through kloppy (requirements-pipeline.txt). Each match is a large XML; expect a few
-hundred MB per match and a few minutes to parse. Converted arrays are written under the data
-directory (<DATA_DIR>/external/idsse/<match>.npz) to keep all large files in one place, outside
-the repository.
+Each match is two files on Hugging Face: a small match-information XML and a 350-420 MB tracking
+XML (about 2.6 GB for all seven). They are downloaded once, directly, into
+<DATA_DIR>/external/idsse/raw/, then parsed by kloppy (requirements-pipeline.txt) from the local
+copies. kloppy's own downloader returned empty files, so it is not used. Converted arrays go to
+<DATA_DIR>/external/idsse/<match>.npz. Everything stays in the data directory, outside the
+repository. Delete raw/ to free the space once all matches are converted.
 
 Per match the arrays are:
   players (n, S, 3)  x, y normalised 0-1, speed m/s (computed from positions)
@@ -39,10 +41,20 @@ import games  # noqa: E402
 
 L = F.L
 OUT_DIR = os.path.join(games.DATA_DIR, "external", "idsse")
-# kloppy's own match map (kloppy master, _providers/sportec.py). The dataset card lists two
-# different ids; any id kloppy refuses is reported and skipped.
-MATCH_IDS = ("J03WMX", "J03WN1", "J03WOH", "J03WOY", "J03WPY", "J03WQQ", "J03WR9")
+RAW_DIR = os.path.join(OUT_DIR, "raw")
+# The seven matches and their competition, as listed in the Hugging Face dataset (checked
+# against its file listing): 1st division = DFL-COM-000001, 2nd division = DFL-COM-000002.
+MATCHES = {
+    "J03WMX": "DFL-COM-000001", "J03WN1": "DFL-COM-000001",
+    "J03WOH": "DFL-COM-000002", "J03WOY": "DFL-COM-000002", "J03WPY": "DFL-COM-000002",
+    "J03WQQ": "DFL-COM-000002", "J03WR9": "DFL-COM-000002",
+}
+MATCH_IDS = tuple(MATCHES)
+BASE_URL = "https://huggingface.co/datasets/pysport/idsse-data/resolve/main/"
+META_FILE = "DFL_02_01_matchinformation_{comp}_DFL-MAT-{match}.xml"
+TRACKING_FILE = "DFL_04_03_positions_raw_observed_{comp}_DFL-MAT-{match}.xml"
 SPEED_SMOOTH_FRAMES = 5
+USER_AGENT = "mtah-pipeline/1.0 (python urllib)"
 
 
 def _speed_from_positions(x_m, y_m, fps):
@@ -127,6 +139,50 @@ def convert(dataset):
     return arrays, report
 
 
+def download(filename):
+    """Fetch one dataset file into RAW_DIR, once. Follows Hugging Face's redirect, writes to a
+    temporary name and renames at the end, so an interrupted download is never mistaken for a
+    complete one. Returns the local path."""
+    import urllib.request
+
+    os.makedirs(RAW_DIR, exist_ok=True)
+    path = os.path.join(RAW_DIR, filename)
+    if os.path.isfile(path) and os.path.getsize(path) > 0:
+        return path
+    request = urllib.request.Request(BASE_URL + filename, headers={"User-Agent": USER_AGENT})
+    part = path + ".part"
+    with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as out:
+        total = int(response.headers.get("Content-Length") or 0)
+        done, last = 0, -1
+        while True:
+            chunk = response.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+            done += len(chunk)
+            if total and done * 10 // total != last:
+                last = done * 10 // total
+                print("      {:>3}% of {:.0f} MB".format(last * 10, total / 1e6), flush=True)
+    if total and os.path.getsize(part) != total:
+        os.remove(part)
+        raise IOError("{}: got {} of {} bytes".format(filename, done, total))
+    if os.path.getsize(part) == 0:
+        os.remove(part)
+        raise IOError("{}: empty download".format(filename))
+    os.replace(part, path)
+    return path
+
+
+def load_dataset(match_id):
+    """kloppy TrackingDataset for one match, from the local copies of its two files."""
+    from kloppy import sportec
+
+    comp = MATCHES[match_id]
+    meta = download(META_FILE.format(comp=comp, match=match_id))
+    raw = download(TRACKING_FILE.format(comp=comp, match=match_id))
+    return sportec.load_tracking(meta_data=meta, raw_data=raw, only_alive=False)
+
+
 def path_for(match_id):
     return os.path.join(OUT_DIR, "{}.npz".format(match_id))
 
@@ -146,17 +202,19 @@ def main():
     parser.add_argument("--only", nargs="*", help="match ids (default: all)")
     parser.add_argument("--force", action="store_true", help="convert again even if present")
     args = parser.parse_args()
-    from kloppy import sportec
 
     os.makedirs(OUT_DIR, exist_ok=True)
     for match_id in args.only or MATCH_IDS:
+        if match_id not in MATCHES:
+            print("{}  SKIPPED: not one of {}".format(match_id, ", ".join(MATCH_IDS)))
+            continue
         if os.path.isfile(path_for(match_id)) and not args.force:
             print("{}  already converted".format(match_id))
             continue
         t0 = time.time()
-        print("{}  downloading + parsing ...".format(match_id), flush=True)
+        print("{}  downloading (once) + parsing ...".format(match_id), flush=True)
         try:
-            dataset = sportec.load_open_tracking_data(match_id=match_id, only_alive=False)
+            dataset = load_dataset(match_id)
         except Exception as error:
             print("{}  SKIPPED: {}: {}".format(match_id, type(error).__name__, error))
             continue

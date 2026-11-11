@@ -149,7 +149,25 @@ published baselines in the wrong order.
 
 ### v2: dead-ball model learned on other matches
 
-**Status: written and tested on made-up matches; not yet run on real IDSSE data or on BAR-ATH.**
+**Status: run on all 7 IDSSE matches and on BAR-ATH (`evaluation/results/v2.csv`).**
+
+Leave-one-match-out on IDSSE (train on six, score the seventh with the official metrics, same team
+rules and decoder for both). **v2 wins on all seven matches:**
+
+| mean of 7 held-out matches | spellF1 | macroF1 | alive/dead F1 | `D` F1 |
+|---|---|---|---|---|
+| v1 dead-ball rules | 0.223 | 0.582 | 0.806 | 0.587 |
+| **v2 dead-ball model** | **0.335** | **0.785** | **0.964** | **0.957** |
+
+On the public 5 minutes v2 and v1 are level (spellF1 0.450 vs 0.447; the bootstrap noise band
+there is ~0.37). Over the full BAR-ATH match v2 labels 38% of graded frames `D`, v1 28%. IDSSE's
+matches are 41-52% dead.
+
+What the table also shows: **both versions find only about half of IDSSE's possessions**
+(~250 predicted vs 370-511 true per match). The team part (v1's nearest-player rules plus the
+switch costs) is now the bottleneck on IDSSE. Careful, though: IDSSE has more possessions per
+minute than our public window (17 in 5 min, ~360 per match), so the Bundesliga data may count
+changes of possession that our ground truth doesn't.
 
 - **IDSSE** is 7 Bundesliga 2022/23 matches from the DFL, CC-BY 4.0 (Bassek et al., Scientific
   Data 2025, doi 10.1038/s41597-025-04505-y). The official tracking marks every frame alive/dead
@@ -168,17 +186,18 @@ published baselines in the wrong order.
 
 - IDSSE's "dead" flag may not mean exactly what our ground truth's does (it comes from DFL's
   tracking provider, ours from Metrica's corrected tracking).
-- kloppy's match ids and the dataset card disagree on two of the seven matches. The script skips
-  any id that fails, and says which.
-- Where kloppy keeps the raw downloads isn't verified. Converted matches go to
-  `$MTAH_DATA_DIR/external/idsse/`, the model to `$MTAH_DATA_DIR/cache/models/`.
+- kloppy 3.18's own IDSSE downloader returns empty files, so `idsse.py` downloads directly from
+  Hugging Face (about 2.6 GB for the seven tracking files) into `$MTAH_DATA_DIR/external/idsse/raw/`
+  and gives kloppy the local copies. Converted matches go to `$MTAH_DATA_DIR/external/idsse/`, the
+  model to `$MTAH_DATA_DIR/cache/models/`. Delete `raw/` once everything is converted.
 
 ---
 
 ## Next steps
 
-1. Run v2 end to end on IDSSE and BAR-ATH, and read the leave-one-match-out table.
-2. Learn the **team** part from IDSSE the same way (it still uses v1's nearest-player rules).
-3. Choose the decoder's switch costs on IDSSE instead of fixed values.
+1. Make v2 the submission candidate (done on IDSSE evidence; see the table above).
+2. Learn the **team** part from IDSSE the same way (it still uses v1's nearest-player rules),
+   minding that IDSSE may split possessions more finely than our ground truth.
+3. Choose the decoder's switch costs on IDSSE instead of fixed values, with the same caution.
 4. Pin exact package versions, freeze, write the technical document
    ([SUBMISSION.md](../SUBMISSION.md) lists what it must cover), validate the exact upload file.
