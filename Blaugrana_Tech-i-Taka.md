@@ -3,7 +3,7 @@
 **Team:** Blaugrana Tech-i-Taka · **Members:** Ana Baltaretu, Angeliki Mentzelopoulou, Diego Becerra
 · **Challenge:** More Than A Hack 2027, BAR-ATH possession (Phase 1)
 · **Repository:** https://github.com/angelikamentz/blaugrana-tech-i-taka · **Submitted file:** `Blaugrana_Tech-i-Taka.csv`, built by
-`python pipeline/run.py --dead model --team model` (version **v2team**)
+`python pipeline/run.py --dead model --team model` (version **v2team+**)
 
 ---
 
@@ -75,6 +75,10 @@ IDSSE's team-in-possession flag. Its inputs (`pipeline/team_features.py`) are tr
   much of the decision.
 - **context:** the "who is nearer" signal averaged over 2 s and 10 s windows centred on the frame,
   and over the past and the future separately
+- **team movement (the "+" in v2team+):** how fast each team's centre moves along the pitch over
+  2 s, the difference between the two, and the distance between the team centres. The team that
+  wins the ball pushes up and the other drops back. Players are tracked even when the ball isn't,
+  so this keeps working inside ball gaps.
 
 **Home/away symmetry.** Every training frame is also used with the two teams exchanged and the
 pitch turned half a circle. A prediction averages the model's answer on the frame and on its
@@ -126,6 +130,7 @@ agrees with the nearest player 76% of the time on `BUILD UP`, 70% on `PROGRESSIO
 - **v4, more realistic degradation:** wobble noise on the IDSSE ball, hiding it outside the pitch
   and while it lies still, calibrated to BAR-ATH aggregates only.
 - **v2, rule-based team evidence:** replaced by the learned team model (section 4).
+- **v2team, the team model without team movement:** replaced by v2team+ (section 4).
 
 v3 and v4 were written on 16 November, the day before the deadline. Their IDSSE
 leave-one-match-out comparison (`pipeline/idsse_eval.py`) wasn't finished in time, and that table
@@ -172,18 +177,20 @@ metrics):
 
 v2 wins on all seven matches against v1.
 
-**Learned team model vs plain v2.** Here both versions use the same dead-ball model, trained on the
+**Learned team model vs plain v2.** Here all versions use the same dead-ball model, trained on the
 other six matches, and the same decoder. Only `p_home` differs:
 
 | mean of 7 held-out matches | spellF1 | macroF1 | possessions predicted / true |
 |---|---|---|---|
-| v2, team rules | `<v2 spellF1>` | `<v2 macroF1>` | `<...>` |
-| **v2team, learned team model (submitted)** | **`<v2team spellF1>`** | **`<v2team macroF1>`** | `<...>` |
+| v2, team rules | 0.335 | 0.785 | 245 / 437 |
+| v2team, learned team model | 0.488 | 0.855 | 292 / 437 |
+| **v2team+, learned team model + team movement (submitted)** | **0.501** | **0.860** | **295 / 437** |
 
-We agreed the decision rule before running the check: the team model replaces the rules only if
-its mean spellF1 is higher **and** it wins on at least 5 of the 7 matches. It won on `<N>` of 7.
-The temperature was fitted on the same pooled held-out predictions, so this score may be slightly
-optimistic. That is a mild effect for a single number. On the public 5 minutes, as a pipeline check only: v2team `<spellF1 / macroF1,
+We agreed the decision rule before running the check: a version replaces the one before it only
+if its mean spellF1 is higher **and** it wins on at least 5 of the 7 matches. v2team beats v2 on
+**7 of 7** matches (+0.154 mean spellF1). v2team+ beats v2team on **6 of 7** (+0.013), a small gain.
+The temperature was fitted on the same pooled held-out predictions, so these scores may be slightly
+optimistic. That is a mild effect for a single number, and it applies to both team variants alike. On the public 5 minutes, as a pipeline check only: v2team+ `<spellF1 / macroF1,
 possessions against 17 true>`. v2 gets spellF1 0.450 and macroF1 0.659, with 15 possessions against 17 true. v1 gets 0.447 / 0.698, and the published
 `baseline_smooth50` gets 0.326 / 0.621. The window is too small to rank versions: its bootstrap
 noise band is about ±0.37.
@@ -192,8 +199,8 @@ noise band is about ±0.37.
 
 ## 5. Limitations
 
-- **The team part is still the bottleneck.** With the rule-based team evidence we found only
-  about 250 possessions per IDSSE match against 370–511 true. `<Update with v2team's count.>` Short opponent control inside a long possession (under 2 s) is usually
+- **The team part is still the bottleneck.** The learned team model raises the possessions found
+  per IDSSE match from 245 to 295, against 437 true on average. Short opponent control inside a long possession (under 2 s) is usually
   missed.
 - **Restart team:** throw-ins have no team tag, so the team after a throw-in relies on proximity
   alone.
@@ -218,7 +225,7 @@ pip install -r requirements-pipeline.txt         # pinned exact versions
 export MTAH_DATA_DIR=/path/to/data               # folder that directly contains tactical/
 python pipeline/idsse.py                         # downloads and converts the 7 IDSSE matches (~2.6 GB)
 python pipeline/dead_model.py                    # dead-ball model: leave-one-match-out table, final model
-python pipeline/team_model.py                    # team model: v2 vs v2team table, verdict, final model
+python pipeline/team_model.py                    # team model: v2 / v2team / v2team+ table, verdicts, final model
 python pipeline/run.py --dead model --team model --name Blaugrana_Tech-i-Taka
 python evaluation/validate_submission.py evaluation/results/Blaugrana_Tech-i-Taka.csv
 ```
