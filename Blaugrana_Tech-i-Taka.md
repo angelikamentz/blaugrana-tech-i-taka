@@ -3,7 +3,7 @@
 **Team:** Blaugrana Tech-i-Taka · **Members:** Ana Baltaretu, Angeliki Mentzelopoulou, Diego Becerra
 · **Challenge:** More Than A Hack 2027, BAR-ATH possession (Phase 1)
 · **Repository:** https://github.com/angelikamentz/blaugrana-tech-i-taka · **Submitted file:** `Blaugrana_Tech-i-Taka.csv`, built by
-`python pipeline/run.py --dead model` (version **v2**)
+`python pipeline/run.py --dead model --team model` (version **v2team**)
 
 ---
 
@@ -14,10 +14,10 @@ ball?** Each frame gets a probability for each, `p_dead` and `p_home`, from clue
 and the Smart Tagging. A decoder then turns the frame-by-frame guesses into possessions.
 
 ```
-raw files ─► features.py ─► dead_model.py (p_dead) + rules.py (p_home) ─► decode.py ─► CSV
-             one row per     gradient-boosted trees   hand-written,        Viterbi over
-             frame, 30+      trained on 7 other       weights explained    H / A / D,
-             clues           matches (IDSSE)          in config.py         X outside the halves
+raw files ─► features.py ─► dead_model.py (p_dead) + team_model.py (p_home) ─► decode.py ─► CSV
+             one row per     two gradient-boosted tree models, both trained      Viterbi over
+             frame, 30+      on 7 other matches (IDSSE); Smart Tagging added     H / A / D,
+             clues           on top with fixed weights                           X outside the halves
 ```
 
 **Why this shape.** The ranking metric, spellF1, scores whole possessions, not frames. A system
@@ -58,12 +58,37 @@ model's log-odds with a fixed weight: a window from 5 s before to 7 s after the 
 
 The first graded frames of each half, before the first `Kick Off (Start)` tag, are forced to `D`.
 
-### 1.3 Team in possession: rules (`pipeline/rules.py`)
+### 1.3 Team in possession: a second model learned on IDSSE (`pipeline/team_model.py`)
 
-`p_home` comes from the log-odds that the home side controls the ball:
-`1.5 · tanh((nearest away − nearest home) / 2 m)`, damped to 30% when nobody is within 2 m of the
-ball, plus `0.3 ×` the difference of Smart Tagging team votes. With no ball, the evidence is
-neutral (`p_home = 0.5`). Every weight is in `pipeline/config.py` with the reason for its value.
+`p_home`, the probability that the home side has the ball while play is live, comes from a second
+gradient-boosted tree model, set up like the dead-ball model. It uses the same tree settings, the
+same degraded IDSSE tracking and every 5th frame. It is trained on live frames only, labelled with
+IDSSE's team-in-possession flag. Its inputs (`pipeline/team_features.py`) are tracking only:
+
+- **who is at the ball:** the nearest home and away distances and their difference, and the
+  players of each team near the ball
+- **where the ball is and where it goes:** position, and velocity along the pitch, where +x is the
+  home team's attacking direction
+- **team shape:** each team's centre relative to the ball, and team speeds
+- **ball gaps:** how long the current gap is, and who was nearer the ball at the last frame before
+  the gap and the first frame after it. The ball is missing on 41% of our frames, so these carry
+  much of the decision.
+- **context:** the "who is nearer" signal averaged over 2 s and 10 s windows centred on the frame,
+  and over the past and the future separately
+
+**Home/away symmetry.** Every training frame is also used with the two teams exchanged and the
+pitch turned half a circle. A prediction averages the model's answer on the frame and on its
+swapped copy, so the model can't prefer "home" for its own sake.
+
+**Calibration.** The decoder adds log-probabilities against fixed switch costs, so the
+probabilities must be honest. One temperature, a single number dividing the model's log-odds, is
+fitted on the pooled held-out predictions of the leave-one-match-out check (section 4).
+
+**Smart Tagging** stays outside the model, because IDSSE has no tags. It is added on top as in our
+rule-based version: `0.3 ×` the difference of team votes from the phase codes, in log-odds.
+
+The rule-based team evidence it replaces, `1.5 · tanh((nearest away − nearest home) / 2 m)`,
+remains in `pipeline/rules.py` as the fallback (`--team rules`).
 
 ### 1.4 Decoder (`pipeline/decode.py`)
 
@@ -100,12 +125,11 @@ agrees with the nearest player 76% of the time on `BUILD UP`, 70% on `PROGRESSIO
   with no opponent close, become hard constraints on the decoder.
 - **v4, more realistic degradation:** wobble noise on the IDSSE ball, hiding it outside the pitch
   and while it lies still, calibrated to BAR-ATH aggregates only.
-- **A learned team model:** a model for `p_home` trained on IDSSE in the same way was designed,
-  but not finished before the deadline.
+- **v2, rule-based team evidence:** replaced by the learned team model (section 4).
 
 v3 and v4 were written on 16 November, the day before the deadline. Their IDSSE
 leave-one-match-out comparison (`pipeline/idsse_eval.py`) wasn't finished in time, and that table
-is the only legal way to choose between versions, so v2 stays the submission. Their code is on the
+is the only legal way to choose between versions, so neither was adopted. Their code is on the
 team's development branch.
 
 ---
@@ -144,10 +168,23 @@ metrics):
 | mean of 7 held-out matches | spellF1 | macroF1 | alive/dead F1 | `D` F1 |
 |---|---|---|---|---|
 | v1, dead-ball rules | 0.223 | 0.582 | 0.806 | 0.587 |
-| **v2, dead-ball model (submitted)** | **0.335** | **0.785** | **0.964** | **0.957** |
+| v2, dead-ball model | 0.335 | 0.785 | 0.964 | 0.957 |
 
-v2 wins on all seven matches. On the public 5 minutes, as a pipeline check only: v2 spellF1 0.450,
-macroF1 0.659, 15 possessions against 17 true. v1 gets 0.447 / 0.698, and the published
+v2 wins on all seven matches against v1.
+
+**Learned team model vs plain v2.** Here both versions use the same dead-ball model, trained on the
+other six matches, and the same decoder. Only `p_home` differs:
+
+| mean of 7 held-out matches | spellF1 | macroF1 | possessions predicted / true |
+|---|---|---|---|
+| v2, team rules | `<v2 spellF1>` | `<v2 macroF1>` | `<...>` |
+| **v2team, learned team model (submitted)** | **`<v2team spellF1>`** | **`<v2team macroF1>`** | `<...>` |
+
+We agreed the decision rule before running the check: the team model replaces the rules only if
+its mean spellF1 is higher **and** it wins on at least 5 of the 7 matches. It won on `<N>` of 7.
+The temperature was fitted on the same pooled held-out predictions, so this score may be slightly
+optimistic. That is a mild effect for a single number. On the public 5 minutes, as a pipeline check only: v2team `<spellF1 / macroF1,
+possessions against 17 true>`. v2 gets spellF1 0.450 and macroF1 0.659, with 15 possessions against 17 true. v1 gets 0.447 / 0.698, and the published
 `baseline_smooth50` gets 0.326 / 0.621. The window is too small to rank versions: its bootstrap
 noise band is about ±0.37.
 
@@ -155,8 +192,8 @@ noise band is about ±0.37.
 
 ## 5. Limitations
 
-- **The team part is the bottleneck.** On IDSSE we find only about 250 possessions per match
-  against 370–511 true. Short opponent control inside a long possession (under 2 s) is usually
+- **The team part is still the bottleneck.** With the rule-based team evidence we found only
+  about 250 possessions per IDSSE match against 370–511 true. `<Update with v2team's count.>` Short opponent control inside a long possession (under 2 s) is usually
   missed.
 - **Restart team:** throw-ins have no team tag, so the team after a throw-in relies on proximity
   alone.
@@ -166,7 +203,7 @@ noise band is about ±0.37.
   what our ground truth means. Our degradation matches aggregates but places ball gaps at random.
 - **Fixed switch costs** were set from football sense, not learned.
 
-**With more time:** learn `p_home` from IDSSE like the dead-ball model; choose the switch costs on
+**With more time:** choose the switch costs on
 IDSSE leave-one-match-out; weight each Smart Tagging code by its reliability, estimated without
 labels; and check that the degraded IDSSE tracking looks like ours, for example by training a
 classifier to tell the two apart.
@@ -180,11 +217,12 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements-pipeline.txt         # pinned exact versions
 export MTAH_DATA_DIR=/path/to/data               # folder that directly contains tactical/
 python pipeline/idsse.py                         # downloads and converts the 7 IDSSE matches (~2.6 GB)
-python pipeline/dead_model.py                    # leave-one-match-out table, then trains the final model
-python pipeline/run.py --dead model --name Blaugrana_Tech-i-Taka
+python pipeline/dead_model.py                    # dead-ball model: leave-one-match-out table, final model
+python pipeline/team_model.py                    # team model: v2 vs v2team table, verdict, final model
+python pipeline/run.py --dead model --team model --name Blaugrana_Tech-i-Taka
 python evaluation/validate_submission.py evaluation/results/Blaugrana_Tech-i-Taka.csv
 ```
 
 Every random draw is seeded (degradation seed 0, model `random_state=0`), so the same data and the
-same package versions give the same file. Caches, converted IDSSE matches and the trained model are
+same package versions give the same file. Caches, converted IDSSE matches and the trained models are
 written under `$MTAH_DATA_DIR`, never into the repository. The match data is not in the repository.

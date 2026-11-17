@@ -1,7 +1,8 @@
 > **Team Blaugrana Tech-i-Taka submission.** Our approach, training data, possession rules and
 > reproduction steps are in [Blaugrana_Tech-i-Taka.md](Blaugrana_Tech-i-Taka.md). The pipeline is
 > in [pipeline/](pipeline/README.md); the submitted file comes from
-> `python pipeline/run.py --dead model --name Blaugrana_Tech-i-Taka`.
+> `python pipeline/run.py --dead model --team model --name Blaugrana_Tech-i-Taka`
+> (after `pipeline/idsse.py`, `pipeline/dead_model.py` and `pipeline/team_model.py`).
 
 # More than a Hack 2027 — Phase 1: Ball Possession
 
