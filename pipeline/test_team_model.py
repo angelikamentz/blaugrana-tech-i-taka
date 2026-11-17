@@ -100,6 +100,21 @@ def main():
                   np.ones(100 + 40 * fps, np.int8))
     assert np.isclose(far[50 + 20 * fps], -0.2), "no bridge further than BRIDGE_MAX_S"
     print("bridge: fills same-team gaps, leaves hand-overs, halftime and long gaps alone")
+
+    # switch costs: the decoder takes them as an argument
+    import decode as D
+    assert D.transition_cost((4.0, 6.0))[0, 1] == 4.0 and D.transition_cost((4.0, 6.0))[0, 2] == 6.0
+    n = 600
+    dcols = {"half": np.ones(n, np.int8), "graded": np.ones(n, bool)}
+    rng = np.random.default_rng(1)
+    p_home = np.clip(0.5 + 0.45 * np.sign(np.sin(np.arange(n) / 15.0)) * rng.random(n), .02, .98)
+    p_dead = np.full(n, 0.05)
+    forced = np.zeros(n, bool)
+    changes = lambda lab: int((lab[1:] != lab[:-1]).sum())
+    hi = changes(D.decode(dcols, p_dead, p_home, forced, costs=(12.0, 10.0)))
+    lo = changes(D.decode(dcols, p_dead, p_home, forced, costs=(4.0, 6.0)))
+    print("switch costs: {} changes at (12, 10), {} at (4, 6) (expect more at lower costs)".format(
+        hi, lo))
     print("OK")
 
 

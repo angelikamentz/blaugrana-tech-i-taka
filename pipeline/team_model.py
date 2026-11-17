@@ -18,7 +18,9 @@ What it does:
   3. one temperature per variant (a single number) rescales the model's log-odds so its
      probabilities are honest for the decoder, fitted on that variant's pooled held-out
      predictions from step 2
-  4. picks the variant with the agreed rule, trains it on all matches and saves it, with its
+  4. decodes the chosen variant's held-out probabilities again with a small grid of decoder
+     switch costs (config.SWITCH_GRID_*); a better pair is kept only by the same rule
+  5. picks the variant with the agreed rule, trains it on all matches and saves it, with its
      temperature, under the data directory (<DATA_DIR>/cache/models/team_v1.joblib)
 
 Decision rule, agreed before running: a version replaces the one before it only if its mean
@@ -202,7 +204,54 @@ def cross_validate(ids, matches):
     print("  VERDICT: team model {}; saved for the pipeline: {}{}".format(
         "ADOPTED" if team_ok else "NOT ADOPTED (use --team rules)", chosen,
         " with +bridge" if bridge_ok else ", no bridge"))
-    return chosen, temps[chosen], bridge_ok
+    costs = cost_search(ids, matches, oof, temps[chosen], chosen, bridge_ok)
+    return chosen, temps[chosen], bridge_ok, costs
+
+
+def cost_search(ids, matches, oof, temperature, variant, bridged):
+    """Switch costs chosen on IDSSE: decode the same held-out probabilities with every pair in
+    config.SWITCH_GRID_TEAM x SWITCH_GRID_DEAD. The best pair replaces the configured costs only by
+    the same rule (higher mean spellF1, at least MIN_WINS wins). Nothing is retrained."""
+    base = (C.SWITCH_COST_TEAM, C.SWITCH_COST_DEAD)
+    grid = [(float(t), float(d)) for t in C.SWITCH_GRID_TEAM for d in C.SWITCH_GRID_DEAD]
+    if base not in grid:
+        grid.append(base)
+    inputs_ = []
+    for m, o in zip(matches, oof):
+        _, _, forced = rules.evidence(m["cols"])
+        p_home = to_p_home(o["logit"][variant], temperature, m["cols"], use_tags=False,
+                           bridged=bridged)
+        inputs_.append((np.where(m["use"], m["labels"], "X"), o["p_dead"], p_home, forced))
+    t0 = time.time()
+    rows = {}
+    for costs in grid:
+        rows[costs] = [dead_model.score(gt, decode.decode(m["cols"], p_dead, p_home, forced,
+                                                           costs=costs))
+                       for m, (gt, p_dead, p_home, forced) in zip(matches, inputs_)]
+    mean = {c: float(np.mean([r["spell_f1_mean"] for r in rows[c]])) for c in grid}
+    poss = {c: float(np.mean([r["n_pred_spells"] for r in rows[c]])) for c in grid}
+    true = float(np.mean([r["n_gt_spells"] for r in rows[base]]))
+
+    print("\nswitch costs on IDSSE ({}{}), mean spellF1 / possessions (true {:.0f}), "
+          "{:.0f} s".format(variant, " +bridge" if bridged else "", true, time.time() - t0))
+    dead_vals = sorted({d for _, d in grid})
+    print("  team \\ dead " + "".join("{:>14g}".format(d) for d in dead_vals))
+    for t in sorted({t for t, _ in grid}):
+        cells = ["{:.3f} / {:>4.0f}".format(mean[(t, d)], poss[(t, d)]) if (t, d) in mean
+                 else "" for d in dead_vals]
+        print("  {:>11g} ".format(t) + "".join("{:>14}".format(c) for c in cells))
+    best = max(grid, key=lambda c: (mean[c], -abs(c[0] - base[0]) - abs(c[1] - base[1])))
+    if best == base:
+        print("  best pair is the configured one {}: KEEP".format(base))
+        return None
+    wins = sum(b["spell_f1_mean"] > a["spell_f1_mean"] for a, b in zip(rows[base], rows[best]))
+    gain = mean[best] - mean[base]
+    adopt = gain > 0 and wins >= MIN_WINS
+    print("  best {} vs configured {}: wins {} of {}, mean spellF1 {:+.3f}  ->  {}".format(
+        best, base, wins, len(ids), gain, "ADOPT " + str(best) if adopt else "KEEP " + str(base)))
+    print("  (best of {} settings on the same 7 matches: the gain is slightly optimistic)".format(
+        len(grid)))
+    return best if adopt else None
 
 
 def main():
@@ -229,22 +278,23 @@ def main():
         matches.append(m)
 
     if args.no_cv:
-        chosen, temperature, bridged = args.variant or "v2team", 1.0, False
+        chosen, temperature, bridged, costs = args.variant or "v2team", 1.0, False, None
     else:
         if args.variant:
             sys.exit("--variant only goes with --no-cv; the check picks the variant itself")
-        chosen, temperature, bridged = cross_validate(ids, matches)
+        chosen, temperature, bridged, costs = cross_validate(ids, matches)
 
     model = fit(matches, chosen)
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     joblib.dump({"model": model, "features": matches[0]["team_names"][chosen],
                  "variant": chosen, "movement": VARIANTS[chosen], "bridge": bridged,
-                 "matches": ids,
+                 "switch_costs": costs, "matches": ids,
                  "temperature": temperature, "sklearn": sklearn.__version__,
                  "params": C.TEAM_MODEL_PARAMS}, MODEL_PATH)
-    print("\nfinal team model ({}{}) on {} matches, temperature {:.2f} -> "
+    print("\nfinal team model ({}{}) on {} matches, temperature {:.2f}, switch costs {} -> "
           "<DATA_DIR>/cache/models/team_v1.joblib".format(
-              chosen, " +bridge" if bridged else "", len(ids), temperature))
+              chosen, " +bridge" if bridged else "", len(ids), temperature,
+              costs if costs else "from config.py"))
 
 
 def load_model():

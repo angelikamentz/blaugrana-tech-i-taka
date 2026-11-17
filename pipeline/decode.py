@@ -32,9 +32,10 @@ def emissions(p_dead, p_home, forced_dead):
     return out
 
 
-def transition_cost():
-    """(3, 3) cost of going from state i (row) to state j (column)."""
-    t, d = C.SWITCH_COST_TEAM, C.SWITCH_COST_DEAD
+def transition_cost(costs=None):
+    """(3, 3) cost of going from state i (row) to state j (column). `costs` = (team, dead), or
+    None for config.SWITCH_COST_TEAM / SWITCH_COST_DEAD."""
+    t, d = costs if costs is not None else (C.SWITCH_COST_TEAM, C.SWITCH_COST_DEAD)
     return np.array([[0.0, t, d],
                      [t, 0.0, d],
                      [d, d, 0.0]])
@@ -56,11 +57,11 @@ def viterbi(emit, cost):
     return path
 
 
-def decode(cols, p_dead, p_home, forced_dead):
+def decode(cols, p_dead, p_home, forced_dead, costs=None):
     """Labels for every frame: H / A / D on graded frames, X elsewhere."""
     labels = np.full(len(p_dead), "X", dtype="<U1")
     emit = emissions(p_dead, p_home, forced_dead)
-    cost = transition_cost()
+    cost = transition_cost(costs)
     for half in (1, 2):
         rows = np.flatnonzero((cols["half"] == half) & cols["graded"])
         if len(rows):

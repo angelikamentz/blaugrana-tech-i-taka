@@ -131,6 +131,10 @@ agrees with the nearest player 76% of the time on `BUILD UP`, 70% on `PROGRESSIO
   and while it lies still, calibrated to BAR-ATH aggregates only.
 - **v2, rule-based team evidence:** replaced by the learned team model (section 4).
 - **v2team, the team model without team movement:** replaced by v2team+ (section 4).
+- **+bridge, filling unsure team evidence from confident evidence on both sides:** where the team
+  model was unsure, a frame took the evidence of the nearest confident frames before and after it
+  (same half, within 15 s) when both named the same team. It lost to v2team+ on 6 of the 7 IDSSE
+  matches (mean spellF1 −0.007), so it was dropped. The Viterbi decoder already does this job.
 
 v3 and v4 were written on 16 November, the day before the deadline. Their IDSSE
 leave-one-match-out comparison (`pipeline/idsse_eval.py`) wasn't finished in time, and that table

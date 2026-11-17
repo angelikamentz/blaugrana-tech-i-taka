@@ -168,3 +168,11 @@ TEAM_MOVE_S = 2.0
 # Football sense and tracking aggregates only, never the public labels.
 BRIDGE_CONF_P = 0.8
 BRIDGE_MAX_S = 15.0
+
+# Switch costs chosen on IDSSE (team_model.py, cost_search). The costs above were set before any
+# learned model existed; with stronger team evidence they may now be too high, which would explain
+# finding ~295 possessions per IDSSE match against ~437 true. A small grid around them, decoded on
+# the same held-out probabilities. The best pair replaces SWITCH_COST_TEAM / SWITCH_COST_DEAD for
+# the team model only if it wins by the usual rule; it is saved with the model, not written here.
+SWITCH_GRID_TEAM = (4.0, 6.0, 8.0, 10.0, 12.0)
+SWITCH_GRID_DEAD = (6.0, 8.0, 10.0, 12.0)

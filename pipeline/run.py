@@ -110,6 +110,7 @@ def main():
             sys.exit("the saved model was trained on different features; rerun "
                      "python pipeline/dead_model.py")
         p_dead = dead_model.predict_dead(model, cols, use_tags=True)
+    costs = None                     # config.py's switch costs unless the team model brings its own
     if args.team == "model":
         import team_model
         bundle = team_model.load_model()
@@ -117,11 +118,12 @@ def main():
         if list(bundle["features"]) != list(current):
             sys.exit("the saved team model was trained on different features; rerun "
                      "python pipeline/team_model.py")
-        print("team model: {}{}, temperature {:.2f}".format(
+        costs = bundle.get("switch_costs")
+        print("team model: {}{}, temperature {:.2f}, switch costs {}".format(
             bundle.get("variant", "v2team"), " +bridge" if bundle.get("bridge") else "",
-            bundle["temperature"]))
+            bundle["temperature"], costs if costs else "from config.py"))
         p_home = team_model.predict_home(bundle, cols, use_tags=True)
-    labels = decode.decode(cols, p_dead, p_home, forced)
+    labels = decode.decode(cols, p_dead, p_home, forced, costs=costs)
     args.name = name
     path = os.path.join(RESULTS_DIR, args.name + ".csv")
     write_submission(labels, path)
