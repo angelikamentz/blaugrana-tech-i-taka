@@ -86,7 +86,8 @@ swapped copy, so the model can't prefer "home" for its own sake.
 
 **Calibration.** The decoder adds log-probabilities against fixed switch costs, so the
 probabilities must be honest. One temperature, a single number dividing the model's log-odds, is
-fitted on the pooled held-out predictions of the leave-one-match-out check (section 4).
+fitted on the pooled held-out predictions of the leave-one-match-out check (section 4). It came
+out at 1.00 for both team variants: the trees' probabilities were already well calibrated.
 
 **Smart Tagging** stays outside the model, because IDSSE has no tags. It is added on top as in our
 rule-based version: `0.3 ×` the difference of team votes from the phase codes, in log-odds.
@@ -98,7 +99,9 @@ remains in `pipeline/rules.py` as the fallback (`--team rules`).
 
 A three-state Viterbi over `H`, `A` and `D`, run on each half separately. Each frame scores the
 states by `log p_dead` for D and `log(1 − p_dead) + log p_home` (or `log(1 − p_home)`) for H and
-A. Each change of state costs a fixed amount: **12** for H↔A, **10** for live↔dead. Per-frame
+A. Each change of state costs a fixed amount: **12** for H↔A and **10** for live↔dead in
+`config.py`, unless the switch-cost search on IDSSE finds a better pair for the team model
+(section 4). The pair in use is saved with the model and printed by `run.py`. Per-frame
 probabilities are clipped at 0.02, so no single frame outweighs a switch. In practice a change
 needs roughly half a second to a second of consistent evidence, about the shortest real
 possession or stoppage. Where there is no evidence, the current owner carries on through the gap.
@@ -194,7 +197,17 @@ We agreed the decision rule before running the check: a version replaces the one
 if its mean spellF1 is higher **and** it wins on at least 5 of the 7 matches. v2team beats v2 on
 **7 of 7** matches (+0.154 mean spellF1). v2team+ beats v2team on **6 of 7** (+0.013), a small gain.
 The temperature was fitted on the same pooled held-out predictions, so these scores may be slightly
-optimistic. That is a mild effect for a single number, and it applies to both team variants alike. On the public 5 minutes, as a pipeline check only: v2team+ `<spellF1 / macroF1,
+optimistic. That is a mild effect for a single number, and it applies to both team variants alike.
+
+**Switch costs chosen on IDSSE.** The decoder's costs were set before any learned model existed.
+With the stronger team evidence they may be too high: v2team+ still finds only 295 possessions per
+match against 437. `team_model.py` therefore decodes v2team+'s held-out probabilities again for
+every pair in a small grid (H↔A cost 4, 6, 8, 10, 12 by live↔dead cost 6, 8, 10, 12), without
+retraining. The best pair replaces 12 / 10 only by the same rule. Result: `<best pair, wins of 7,
+mean spellF1 change, and ADOPT or KEEP>`. Picking the best of 20 settings on the same 7 matches
+makes any gain slightly optimistic.
+
+On the public 5 minutes, as a pipeline check only: v2team+ `<spellF1 / macroF1,
 possessions against 17 true>`. v2 gets spellF1 0.450 and macroF1 0.659, with 15 possessions against 17 true. v1 gets 0.447 / 0.698, and the published
 `baseline_smooth50` gets 0.326 / 0.621. The window is too small to rank versions: its bootstrap
 noise band is about ±0.37.
@@ -212,10 +225,12 @@ noise band is about ±0.37.
   ground truth switches at control.
 - **Domain gap:** the IDSSE alive/dead flag comes from a different provider and may not mean exactly
   what our ground truth means. Our degradation matches aggregates but places ball gaps at random.
-- **Fixed switch costs** were set from football sense, not learned.
+- **Switch costs** come from a small grid chosen on the same 7 matches that score it. A nested
+  check, choosing on six matches and scoring the seventh, would be cleaner.
 
-**With more time:** choose the switch costs on
-IDSSE leave-one-match-out; weight each Smart Tagging code by its reliability, estimated without
+**With more time:** learn the switch costs with a nested leave-one-match-out check; use Diego's
+more realistic degradation (ball wobble, ball hidden when still or out of the pitch), which
+`compare_domains.py` showed our tracking needs; weight each Smart Tagging code by its reliability, estimated without
 labels; and check that the degraded IDSSE tracking looks like ours, for example by training a
 classifier to tell the two apart.
 
@@ -229,7 +244,7 @@ pip install -r requirements-pipeline.txt         # pinned exact versions
 export MTAH_DATA_DIR=/path/to/data               # folder that directly contains tactical/
 python pipeline/idsse.py                         # downloads and converts the 7 IDSSE matches (~2.6 GB)
 python pipeline/dead_model.py                    # dead-ball model: leave-one-match-out table, final model
-python pipeline/team_model.py                    # team model: v2 / v2team / v2team+ table, verdicts, final model
+python pipeline/team_model.py                    # team model: variant table, verdicts, switch costs, final model
 python pipeline/run.py --dead model --team model --name Blaugrana_Tech-i-Taka
 python evaluation/validate_submission.py evaluation/results/Blaugrana_Tech-i-Taka.csv
 ```
