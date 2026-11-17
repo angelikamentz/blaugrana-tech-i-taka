@@ -177,7 +177,7 @@ classifier to tell the two apart.
 
 ```bash
 python -m venv venv && source venv/bin/activate
-pip install -r requirements-pipeline.txt         # pinned versions
+pip install -r requirements-pipeline.txt         # pinned exact versions
 export MTAH_DATA_DIR=/path/to/data               # folder that directly contains tactical/
 python pipeline/idsse.py                         # downloads and converts the 7 IDSSE matches (~2.6 GB)
 python pipeline/dead_model.py                    # leave-one-match-out table, then trains the final model
