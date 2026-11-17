@@ -78,8 +78,38 @@ def _future_mean(values, frames):
     return _past_mean(np.asarray(values)[::-1], frames)[::-1].copy()
 
 
-def matrix(cols):
-    """(X (n, k) float32, feature names). NaN marks a missing value; the model handles it."""
+def team_movement(cols):
+    """v2team+: how each team moves as a block. The side with the ball pushes up and spreads out,
+    the other drops back. Velocity of each team centre along x (+x = home attacks) over the
+    TEAM_MOVE_S seconds around the frame, their difference, and the gap between the two centres.
+    Players are tracked even when the ball isn't, so this keeps working inside ball gaps."""
+    frames = max(int(round(C.TEAM_MOVE_S * FPS)), 2)
+    half = frames // 2
+    out = {}
+    for side in ("H", "A"):
+        cx = moving_nanmean(np.asarray(cols[side + "_cx_m"], dtype=np.float32), frames)
+        n = len(cx)
+        v = np.full(n, np.nan, dtype=np.float32)
+        if n > 2 * half:
+            # centre position half a window later minus half a window earlier, per second
+            v[half:n - half] = (cx[2 * half:] - cx[:n - 2 * half]) / (2.0 * half / FPS)
+        out[side] = v
+    feats = {
+        "H_cx_vx_ms": out["H"],
+        "A_cx_vx_ms": out["A"],
+        "cx_vx_diff_ms": out["H"] - out["A"],
+        "cx_gap_m": (np.asarray(cols["H_cx_m"], dtype=np.float32)
+                     - np.asarray(cols["A_cx_m"], dtype=np.float32)),
+    }
+    for w in C.TEAM_WINDOWS_S:
+        frames_w = max(int(round(w * FPS)), 1)
+        feats["cx_vx_diff_w{:g}".format(w)] = moving_nanmean(feats["cx_vx_diff_ms"], frames_w)
+    return feats
+
+
+def matrix(cols, movement=False):
+    """(X (n, k) float32, feature names). NaN marks a missing value; the model handles it.
+    movement=True adds the team-movement inputs (v2team+)."""
     have = np.asarray(cols["ball_filled"], dtype=bool)
     near_h = np.where(have, cols["near_H_m"], np.nan).astype(np.float32)
     near_a = np.where(have, cols["near_A_m"], np.nan).astype(np.float32)
@@ -128,6 +158,8 @@ def matrix(cols):
         feats["near_diff_future{:g}".format(w)] = _future_mean(diff, frames)
         feats["ball_x_c_w{:g}".format(w)] = moving_nanmean(feats["ball_x_c_m"], frames)
         feats["ball_vx_w{:g}".format(w)] = moving_nanmean(vx, frames)
+    if movement:
+        feats.update(team_movement(cols))
     names = list(feats)
     X = np.stack([np.asarray(feats[k], dtype=np.float32) for k in names], axis=1)
     return X, names

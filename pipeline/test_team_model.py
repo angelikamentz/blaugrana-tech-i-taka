@@ -58,14 +58,27 @@ def main():
     assert np.allclose(X[ok, k], -Xs[ok, k], atol=1e-3), "swap must mirror the ball"
     print("features: {} columns, swap symmetric".format(len(names)))
 
-    m = {"XT": X, "XT_swap": Xs, "live": np.ones(len(home), bool),
-         "labels": np.where(home, "H", "A")}
-    model = TM.fit([m])
-    p = TM.to_p_home(TM.raw_logit(model, X, Xs), 1.0, cols, use_tags=True)
-    acc = float(((p > 0.5) == home).mean())
-    t, _, _ = TM.best_temperature(TM.raw_logit(model, X, Xs), home)
-    print("toy model: right on {:.1f}% of frames, temperature {:.2f}".format(100 * acc, t))
-    assert acc > 0.9, "the toy model should separate the teams"
+    # v2team+: team movement inputs, and their behaviour under the swap
+    Xm, Xms, names_m = TM.inputs(cols, True)
+    assert len(names_m) > len(names), "movement must add inputs"
+    k = names_m.index("cx_vx_diff_ms")
+    ok = np.isfinite(Xm[:, k]) & np.isfinite(Xms[:, k])
+    assert ok.any() and np.allclose(Xm[ok, k], Xms[ok, k], atol=1e-3), \
+        "swap: (home - away) centre velocity is unchanged by the half-turn"
+    print("movement: {} more columns".format(len(names_m) - len(names)))
+
+    m = {"XT": {"v2team": X, "v2team+": Xm}, "XT_swap": {"v2team": Xs, "v2team+": Xms},
+         "live": np.ones(len(home), bool), "labels": np.where(home, "H", "A")}
+    for v, (a, b) in (("v2team", (X, Xs)), ("v2team+", (Xm, Xms))):
+        model = TM.fit([m], v)
+        logit = TM.raw_logit(model, a, b)
+        p = TM.to_p_home(logit, 1.0, cols, use_tags=True)
+        acc = float(((p > 0.5) == home).mean())
+        t, _, _ = TM.best_temperature(logit, home)
+        print("toy {}: right on {:.1f}% of frames, temperature {:.2f}".format(v, 100 * acc, t))
+        assert acc > 0.9, "the toy model should separate the teams"
+    bundle = {"model": model, "movement": True, "temperature": 1.0}
+    assert TM.predict_home(bundle, cols).shape == home.shape
     print("OK")
 
 

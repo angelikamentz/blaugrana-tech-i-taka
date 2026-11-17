@@ -6,19 +6,22 @@
 What it does:
   1. each IDSSE match is degraded exactly as for the dead-ball model (same seed per match), turned
      into the feature table and into the team model's inputs (team_features.matrix)
-  2. leave-one-match-out: for each match, the dead-ball model AND the team model are trained on
-     the other six. The held-out match is labelled through the full pipeline twice:
-        v2      dead-ball model + v1 team rules (nearest player) + decoder
-        v2team  dead-ball model + learned team model          + decoder
-     and both are scored with the OFFICIAL metrics against IDSSE's own labels. BAR-ATH is never
+  2. leave-one-match-out: for each match, the dead-ball model AND every team-model variant are
+     trained on the other six. The held-out match is labelled through the full pipeline as
+        v2        dead-ball model + v1 team rules (nearest player)        + decoder
+        v2team    dead-ball model + learned team model                    + decoder
+        v2team+   dead-ball model + learned team model + team movement    + decoder
+     and all are scored with the OFFICIAL metrics against IDSSE's own labels. BAR-ATH is never
      used to choose anything.
-  3. one temperature (a single number) rescales the team model's log-odds so its probabilities
-     are honest for the decoder. It is fitted on the pooled held-out predictions of step 2.
-  4. trains the final model on all matches and saves it, with the temperature, under the data
-     directory (<DATA_DIR>/cache/models/team_v1.joblib)
+  3. one temperature per variant (a single number) rescales the model's log-odds so its
+     probabilities are honest for the decoder, fitted on that variant's pooled held-out
+     predictions from step 2
+  4. picks the variant with the agreed rule, trains it on all matches and saves it, with its
+     temperature, under the data directory (<DATA_DIR>/cache/models/team_v1.joblib)
 
-Decision rule, agreed before running: v2team replaces v2 only if its mean spellF1 is higher AND it
-wins on at least 5 of the 7 matches. The script prints the verdict.
+Decision rule, agreed before running: a version replaces the one before it only if its mean
+spellF1 is higher AND it wins on at least 5 of the 7 matches. v2team is judged against v2, and
+v2team+ against v2team. The script prints each verdict.
 
 Prints aggregates only.
 """
@@ -45,13 +48,23 @@ import games  # noqa: E402
 
 MODEL_PATH = os.path.join(games.DATA_DIR, "cache", "models", "team_v1.joblib")
 TEMPERATURES = np.round(np.arange(0.5, 4.01, 0.1), 2)
+VARIANTS = {"v2team": False, "v2team+": True}       # name -> team movement inputs on?
+MIN_WINS = 5
 
 
-def prepare(match_id, seed):
-    """Dead-ball model inputs (dead_model.prepare) plus the team model's inputs, both sides."""
+def inputs(cols, movement):
+    """(X, X with the teams swapped, names)."""
+    X, names = team_features.matrix(cols, movement=movement)
+    X_swap, _ = team_features.matrix(team_features.swap(cols), movement=movement)
+    return X, X_swap, names
+
+
+def prepare(match_id, seed, variants=VARIANTS):
+    """Dead-ball model inputs (dead_model.prepare) plus each variant's team inputs."""
     m = dead_model.prepare(match_id, seed)
-    m["XT"], m["team_names"] = team_features.matrix(m["cols"])
-    m["XT_swap"], _ = team_features.matrix(team_features.swap(m["cols"]))
+    m["XT"], m["XT_swap"], m["team_names"] = {}, {}, {}
+    for v, movement in variants.items():
+        m["XT"][v], m["XT_swap"][v], m["team_names"][v] = inputs(m["cols"], movement)
     m["live"] = m["use"] & np.isin(m["labels"], ("H", "A"))
     return m
 
@@ -61,13 +74,13 @@ def new_model():
     return HistGradientBoostingClassifier(**C.TEAM_MODEL_PARAMS)
 
 
-def fit(matches):
+def fit(matches, variant):
     """Trained on live frames, every TEAM_TRAIN_STEP-th, each also with the teams swapped."""
     Xs, ys = [], []
     for m in matches:
         rows = np.flatnonzero(m["live"])[::C.TEAM_TRAIN_STEP]
         home = m["labels"][rows] == "H"
-        Xs += [m["XT"][rows], m["XT_swap"][rows]]
+        Xs += [m["XT"][variant][rows], m["XT_swap"][variant][rows]]
         ys += [home, ~home]
     model = new_model()
     model.fit(np.concatenate(Xs), np.concatenate(ys))
@@ -100,65 +113,93 @@ def best_temperature(logits, targets):
     return float(TEMPERATURES[k]), float(losses[k]), float(losses[list(TEMPERATURES).index(1.0)])
 
 
+def verdict(rows, new, old):
+    wins = sum(b["spell_f1_mean"] > a["spell_f1_mean"] for a, b in zip(rows[old], rows[new]))
+    gain = np.mean([r["spell_f1_mean"] for r in rows[new]]) - \
+        np.mean([r["spell_f1_mean"] for r in rows[old]])
+    adopt = gain > 0 and wins >= MIN_WINS
+    print("  {} vs {}: wins {} of {}, mean spellF1 {:+.3f}  ->  {}".format(
+        new, old, wins, len(rows[old]), gain, "ADOPT " + new if adopt else "KEEP " + old))
+    return adopt
+
+
 def cross_validate(ids, matches):
+    names = ["v2"] + list(VARIANTS)
     # Pass 1: out-of-fold dead-ball probabilities and team log-odds for every match.
     oof = []
     for k, held in enumerate(ids):
         t0 = time.time()
         others = [m for j, m in enumerate(matches) if j != k]
         dead = dead_model.fit(others)
-        team = fit(others)
         m = matches[k]
-        p_dead = dead_model.combine(dead.predict_proba(m["X"])[:, 1], m["cols"], use_tags=False)
-        logit = raw_logit(team, m["XT"], m["XT_swap"])
-        oof.append({"p_dead": p_dead, "logit": logit})
-        rows = m["live"]
-        acc = float(((logit[rows] > 0) == (m["labels"][rows] == "H")).mean())
-        print("  {}  trained on the other {} ({:.0f} s)  team right on live frames {:.1f}%".format(
-            held, len(others), time.time() - t0, 100.0 * acc))
+        o = {"p_dead": dead_model.combine(dead.predict_proba(m["X"])[:, 1], m["cols"],
+                                          use_tags=False), "logit": {}}
+        msg = []
+        for v in VARIANTS:
+            team = fit(others, v)
+            o["logit"][v] = raw_logit(team, m["XT"][v], m["XT_swap"][v])
+            rows = m["live"]
+            acc = float(((o["logit"][v][rows] > 0) == (m["labels"][rows] == "H")).mean())
+            msg.append("{} {:.1f}%".format(v, 100.0 * acc))
+        oof.append(o)
+        print("  {}  trained on the other {} ({:.0f} s)  team right on live frames: {}".format(
+            held, len(others), time.time() - t0, ", ".join(msg)))
 
-    # One temperature from the pooled held-out predictions.
-    pooled = np.concatenate([o["logit"][m["live"]] for o, m in zip(oof, matches)])
+    # One temperature per variant from its pooled held-out predictions.
     target = np.concatenate([m["labels"][m["live"]] == "H" for m in matches])
-    temperature, loss, loss_raw = best_temperature(pooled, target)
-    print("\ntemperature {:.2f}  (held-out log-loss {:.4f}, {:.4f} without it)".format(
-        temperature, loss, loss_raw))
+    temps = {}
+    print()
+    for v in VARIANTS:
+        pooled = np.concatenate([o["logit"][v][m["live"]] for o, m in zip(oof, matches)])
+        temps[v], loss, loss_raw = best_temperature(pooled, target)
+        print("{:<8} temperature {:.2f}  (held-out log-loss {:.4f}, {:.4f} without it)".format(
+            v, temps[v], loss, loss_raw))
 
-    # Pass 2: full pipeline on each held-out match, v2 vs v2team, official metrics.
-    line = "  {:<8} {:>7} {:>7} {:>11} | {:>7} {:>7} {:>11}"
+    # Pass 2: full pipeline on each held-out match, official metrics.
     print("\nleave-one-match-out, official metrics on the held-out match (degraded tracking)")
-    print("  {:<8} {:^27} | {:^27}".format("", "v2 (team rules)", "v2team (team model)"))
-    print(line.format("match", "spellF1", "macroF1", "poss pr/gt", "spellF1", "macroF1",
-                      "poss pr/gt"))
-    rows = {"v2": [], "v2team": []}
+    print("  {:<8}".format("match") + "".join(" | {:^25}".format(n) for n in names))
+    print("  {:<8}".format("") + " | spellF1 macroF1 poss pr/gt" * len(names))
+    rows = {n: [] for n in names}
     for k, held in enumerate(ids):
         m, o = matches[k], oof[k]
         gt = np.where(m["use"], m["labels"], "X")
         _, p_home_rules, forced = rules.evidence(m["cols"])
-        p_home_model = to_p_home(o["logit"], temperature, m["cols"], use_tags=False)
-        out = []
-        for name, p_home in (("v2", p_home_rules), ("v2team", p_home_model)):
+        line = "  {:<8}".format(held)
+        for n in names:
+            if n == "v2":
+                p_home = p_home_rules
+            else:
+                p_home = to_p_home(o["logit"][n], temps[n], m["cols"], use_tags=False)
             s = dead_model.score(gt, decode.decode(m["cols"], o["p_dead"], p_home, forced))
-            rows[name].append(s)
-            out += [s["spell_f1_mean"], s["macro_f1"],
-                    "{}/{}".format(s["n_pred_spells"], s["n_gt_spells"])]
-        print(line.format(held, *["{:.3f}".format(v) if isinstance(v, float) else v
-                                  for v in out]))
-    means = {}
-    for name in ("v2", "v2team"):
-        means[name] = [np.mean([r[k] for r in rows[name]]) for k in ("spell_f1_mean", "macro_f1")]
-        print("  mean {:<7} spellF1 {:.3f}  macroF1 {:.3f}".format(name, *means[name]))
-    wins = sum(b["spell_f1_mean"] > a["spell_f1_mean"] for a, b in zip(rows["v2"], rows["v2team"]))
-    adopt = means["v2team"][0] > means["v2"][0] and wins >= 5
-    print("\nv2team wins on {} of {} matches.  VERDICT: {}".format(
-        wins, len(ids), "ADOPT v2team" if adopt else "KEEP v2"))
-    return temperature
+            rows[n].append(s)
+            line += " | {:>7.3f} {:>7.3f} {:>10}".format(
+                s["spell_f1_mean"], s["macro_f1"],
+                "{}/{}".format(s["n_pred_spells"], s["n_gt_spells"]))
+        print(line)
+    print()
+    for n in names:
+        print("  mean {:<8} spellF1 {:.3f}  macroF1 {:.3f}  possessions {:.0f} / {:.0f}".format(
+            n, np.mean([r["spell_f1_mean"] for r in rows[n]]),
+            np.mean([r["macro_f1"] for r in rows[n]]),
+            np.mean([r["n_pred_spells"] for r in rows[n]]),
+            np.mean([r["n_gt_spells"] for r in rows[n]])))
+
+    print("\nverdicts (rule: higher mean spellF1 and at least {} of {} wins)".format(
+        MIN_WINS, len(ids)))
+    team_ok = verdict(rows, "v2team", "v2")
+    plus_ok = verdict(rows, "v2team+", "v2team")
+    chosen = "v2team+" if plus_ok else "v2team"
+    print("  VERDICT: team model {}; variant saved for the pipeline: {}".format(
+        "ADOPTED" if team_ok else "NOT ADOPTED (use --team rules)", chosen))
+    return chosen, temps[chosen]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-cv", action="store_true",
                         help="skip the check and use temperature 1 (not for the submission)")
+    parser.add_argument("--variant", choices=tuple(VARIANTS), default=None,
+                        help="with --no-cv only: which variant to train for a quick test")
     args = parser.parse_args()
     import joblib
     import sklearn
@@ -176,27 +217,32 @@ def main():
             100.0 * float((m["labels"][m["live"]] == "H").mean())))
         matches.append(m)
 
-    temperature = 1.0 if args.no_cv else cross_validate(ids, matches)
+    if args.no_cv:
+        chosen, temperature = args.variant or "v2team", 1.0
+    else:
+        if args.variant:
+            sys.exit("--variant only goes with --no-cv; the check picks the variant itself")
+        chosen, temperature = cross_validate(ids, matches)
 
-    model = fit(matches)
+    model = fit(matches, chosen)
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    joblib.dump({"model": model, "features": matches[0]["team_names"], "matches": ids,
+    joblib.dump({"model": model, "features": matches[0]["team_names"][chosen],
+                 "variant": chosen, "movement": VARIANTS[chosen], "matches": ids,
                  "temperature": temperature, "sklearn": sklearn.__version__,
                  "params": C.TEAM_MODEL_PARAMS}, MODEL_PATH)
-    print("\nfinal team model on {} matches, temperature {:.2f} -> "
-          "<DATA_DIR>/cache/models/team_v1.joblib".format(len(ids), temperature))
+    print("\nfinal team model ({}) on {} matches, temperature {:.2f} -> "
+          "<DATA_DIR>/cache/models/team_v1.joblib".format(chosen, len(ids), temperature))
 
 
 def load_model():
+    """The saved bundle: model, features, variant, movement, temperature, ..."""
     import joblib
-    bundle = joblib.load(MODEL_PATH)
-    return bundle["model"], bundle["features"], bundle["temperature"]
+    return joblib.load(MODEL_PATH)
 
 
-def predict_home(model, temperature, cols, use_tags=True):
-    X, _ = team_features.matrix(cols)
-    X_swap, _ = team_features.matrix(team_features.swap(cols))
-    return to_p_home(raw_logit(model, X, X_swap), temperature, cols, use_tags)
+def predict_home(bundle, cols, use_tags=True):
+    X, X_swap, _ = inputs(cols, bundle.get("movement", False))
+    return to_p_home(raw_logit(bundle["model"], X, X_swap), bundle["temperature"], cols, use_tags)
 
 
 if __name__ == "__main__":

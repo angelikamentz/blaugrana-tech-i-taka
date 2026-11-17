@@ -112,12 +112,14 @@ def main():
         p_dead = dead_model.predict_dead(model, cols, use_tags=True)
     if args.team == "model":
         import team_model
-        team, team_names, temperature = team_model.load_model()
-        _, current = team_model.team_features.matrix(cols)
-        if list(team_names) != list(current):
+        bundle = team_model.load_model()
+        _, _, current = team_model.inputs(cols, bundle.get("movement", False))
+        if list(bundle["features"]) != list(current):
             sys.exit("the saved team model was trained on different features; rerun "
                      "python pipeline/team_model.py")
-        p_home = team_model.predict_home(team, temperature, cols, use_tags=True)
+        print("team model: {}, temperature {:.2f}".format(
+            bundle.get("variant", "v2team"), bundle["temperature"]))
+        p_home = team_model.predict_home(bundle, cols, use_tags=True)
     labels = decode.decode(cols, p_dead, p_home, forced)
     args.name = name
     path = os.path.join(RESULTS_DIR, args.name + ".csv")

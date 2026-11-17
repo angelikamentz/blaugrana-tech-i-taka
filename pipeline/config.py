@@ -158,3 +158,6 @@ DEAD_TAG_PRIOR = DEAD_SETPIECE
 TEAM_MODEL_PARAMS = dict(DEAD_MODEL_PARAMS)
 TEAM_TRAIN_STEP = 5
 TEAM_WINDOWS_S = (2.0, 10.0)
+# v2team+: team-centre velocities over this many seconds around the frame. 2 s is long enough to
+# average out tracking jitter and short enough to catch a team pushing up after winning the ball.
+TEAM_MOVE_S = 2.0
