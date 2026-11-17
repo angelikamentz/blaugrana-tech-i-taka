@@ -19,7 +19,7 @@ What it does:
      probabilities are honest for the decoder, fitted on that variant's pooled held-out
      predictions from step 2
   4. picks the variant with the agreed rule, trains it on all matches and saves it, with its
-     temperature, under the data directory (<DATA_DIR>/cache/models/team_bridge.joblib)
+     temperature, under the data directory (<DATA_DIR>/cache/models/team_v1.joblib)
 
 Decision rule, agreed before running: a version replaces the one before it only if its mean
 spellF1 is higher AND it wins on at least 5 of the 7 matches. v2team is judged against v2,
@@ -50,7 +50,7 @@ import team_features  # noqa: E402
 import bridge  # noqa: E402
 import games  # noqa: E402
 
-MODEL_PATH = os.path.join(games.DATA_DIR, "cache", "models", "team_bridge.joblib")
+MODEL_PATH = os.path.join(games.DATA_DIR, "cache", "models", "team_v1.joblib")
 TEMPERATURES = np.round(np.arange(0.5, 4.01, 0.1), 2)
 VARIANTS = {"v2team": False, "v2team+": True}       # name -> team movement inputs on?
 MIN_WINS = 5
@@ -243,7 +243,7 @@ def main():
                  "temperature": temperature, "sklearn": sklearn.__version__,
                  "params": C.TEAM_MODEL_PARAMS}, MODEL_PATH)
     print("\nfinal team model ({}{}) on {} matches, temperature {:.2f} -> "
-          "<DATA_DIR>/cache/models/team_bridge.joblib".format(
+          "<DATA_DIR>/cache/models/team_v1.joblib".format(
               chosen, " +bridge" if bridged else "", len(ids), temperature))
 
 
