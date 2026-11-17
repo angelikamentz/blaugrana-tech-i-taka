@@ -41,6 +41,7 @@ def synthetic(n=3000, seed=0):
         "ball_since_seen_s": np.zeros(n, np.float32),
         "ball_until_seen_s": np.zeros(n, np.float32),
         "tag_H_votes": np.zeros(n, np.int8), "tag_A_votes": np.zeros(n, np.int8),
+        "half": np.where(np.arange(n) < n // 2, 1, 2).astype(np.int8),
     }
     return cols, home
 
