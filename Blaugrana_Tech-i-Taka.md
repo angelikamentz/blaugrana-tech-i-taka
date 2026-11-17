@@ -203,9 +203,13 @@ optimistic. That is a mild effect for a single number, and it applies to both te
 With the stronger team evidence they may be too high: v2team+ still finds only 295 possessions per
 match against 437. `team_model.py` therefore decodes v2team+'s held-out probabilities again for
 every pair in a small grid (H↔A cost 4, 6, 8, 10, 12 by live↔dead cost 6, 8, 10, 12), without
-retraining. The best pair replaces 12 / 10 only by the same rule. Result: `<best pair, wins of 7,
-mean spellF1 change, and ADOPT or KEEP>`. Picking the best of 20 settings on the same 7 matches
-makes any gain slightly optimistic.
+retraining. The best pair replaces 12 / 10 only by the same rule.
+
+**Result: we kept 12 / 10.** The best pair, 4 / 12, won on only 4 of 7 matches, by +0.003 mean
+spellF1. Across the whole grid mean spellF1 stays between 0.499 and 0.504, while predicted
+possessions rise from 293 to 356 as the costs fall. Cheaper switches add possessions, but not the
+right ones, so the remaining gap is in the quality of the team evidence rather than in the
+decoder's threshold.
 
 On the public 5 minutes, as a pipeline check only: v2team+ `<spellF1 / macroF1,
 possessions against 17 true>`. v2 gets spellF1 0.450 and macroF1 0.659, with 15 possessions against 17 true. v1 gets 0.447 / 0.698, and the published
@@ -225,10 +229,11 @@ noise band is about ±0.37.
   ground truth switches at control.
 - **Domain gap:** the IDSSE alive/dead flag comes from a different provider and may not mean exactly
   what our ground truth means. Our degradation matches aggregates but places ball gaps at random.
-- **Switch costs** come from a small grid chosen on the same 7 matches that score it. A nested
-  check, choosing on six matches and scoring the seventh, would be cleaner.
+- **Switch costs** stay at the values set from football sense. A grid on IDSSE found nothing
+  better by our rule (section 4).
 
-**With more time:** learn the switch costs with a nested leave-one-match-out check; use Diego's
+**With more time:** improve the team evidence where possessions are still missed (short opponent
+control, restarts); use Diego's
 more realistic degradation (ball wobble, ball hidden when still or out of the pitch), which
 `compare_domains.py` showed our tracking needs; weight each Smart Tagging code by its reliability, estimated without
 labels; and check that the degraded IDSSE tracking looks like ours, for example by training a
