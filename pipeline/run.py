@@ -3,6 +3,7 @@
     python pipeline/run.py                 # writes evaluation/results/v1.csv
     python pipeline/run.py --name v1b      # another file name
     python pipeline/run.py --rebuild       # rebuild the feature cache first
+    python pipeline/run.py --dead model --team model   # v2 + learned team model: v2team.csv
 
 Run it in your own terminal: it reads the match data. It prints aggregates of its own output only
 (label shares, possession counts and lengths), which are safe to paste back to Claude.
@@ -88,11 +89,16 @@ def main():
     parser.add_argument("--dead", choices=("rules", "model"), default="rules",
                         help="dead-ball evidence: v1 rules, or the v2 model trained on IDSSE "
                              "(python pipeline/dead_model.py first)")
+    parser.add_argument("--team", choices=("rules", "model"), default="rules",
+                        help="team evidence: v1 nearest-player rules, or the team model trained "
+                             "on IDSSE (python pipeline/team_model.py first)")
     parser.add_argument("--name", default=None,
                         help="output file name, without .csv (default: v1 / v2)")
     parser.add_argument("--rebuild", action="store_true", help="rebuild the feature cache")
     args = parser.parse_args()
     name = args.name or ("v2" if args.dead == "model" else "v1")
+    if args.team == "model" and not args.name:
+        name += "team"
 
     cols, _ = F.build(use_cache=not args.rebuild)
     p_dead, p_home, forced = rules.evidence(cols)
@@ -104,6 +110,14 @@ def main():
             sys.exit("the saved model was trained on different features; rerun "
                      "python pipeline/dead_model.py")
         p_dead = dead_model.predict_dead(model, cols, use_tags=True)
+    if args.team == "model":
+        import team_model
+        team, team_names, temperature = team_model.load_model()
+        _, current = team_model.team_features.matrix(cols)
+        if list(team_names) != list(current):
+            sys.exit("the saved team model was trained on different features; rerun "
+                     "python pipeline/team_model.py")
+        p_home = team_model.predict_home(team, temperature, cols, use_tags=True)
     labels = decode.decode(cols, p_dead, p_home, forced)
     args.name = name
     path = os.path.join(RESULTS_DIR, args.name + ".csv")

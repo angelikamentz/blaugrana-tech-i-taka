@@ -146,3 +146,15 @@ BALL_STILL_MS = 0.5              # the ball counts as still below this speed
 # Smart Tagging is not available for IDSSE, so it cannot be in the model. It is added on top of
 # the model's log-odds with the same fixed weight and window as in v1.
 DEAD_TAG_PRIOR = DEAD_SETPIECE
+
+# =============================================================================================
+# Learned team model (team_model.py): p_home learned on IDSSE like the dead-ball model, in place
+# of v1's nearest-player rules. Same modest tree settings, same degradation, every 5th live frame
+# (neighbours are near-duplicates). Context windows centred on the frame, plus past-only and
+# future-only means: 2 s is a touch or a short duel, 10 s a stretch of possession. Smart Tagging
+# stays outside the model (IDSSE has none) and is added with TEAM_TAG_GAIN as in v1. Kept or
+# dropped by the leave-one-match-out comparison on IDSSE only.
+# =============================================================================================
+TEAM_MODEL_PARAMS = dict(DEAD_MODEL_PARAMS)
+TEAM_TRAIN_STEP = 5
+TEAM_WINDOWS_S = (2.0, 10.0)
