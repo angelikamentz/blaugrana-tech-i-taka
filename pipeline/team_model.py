@@ -11,6 +11,8 @@ What it does:
         v2        dead-ball model + v1 team rules (nearest player)        + decoder
         v2team    dead-ball model + learned team model                    + decoder
         v2team+   dead-ball model + learned team model + team movement    + decoder
+        ...+bridge  the same, with unsure team evidence filled from the confident evidence on
+                    both sides when both name the same team (bridge.py)
      and all are scored with the OFFICIAL metrics against IDSSE's own labels. BAR-ATH is never
      used to choose anything.
   3. one temperature per variant (a single number) rescales the model's log-odds so its
@@ -20,8 +22,9 @@ What it does:
      temperature, under the data directory (<DATA_DIR>/cache/models/team_v1.joblib)
 
 Decision rule, agreed before running: a version replaces the one before it only if its mean
-spellF1 is higher AND it wins on at least 5 of the 7 matches. v2team is judged against v2, and
-v2team+ against v2team. The script prints each verdict.
+spellF1 is higher AND it wins on at least 5 of the 7 matches. v2team is judged against v2,
+v2team+ against v2team, and +bridge against the team variant chosen before it. The script prints
+each verdict.
 
 Prints aggregates only.
 """
@@ -44,6 +47,7 @@ import decode  # noqa: E402
 import idsse  # noqa: E402
 import rules  # noqa: E402
 import team_features  # noqa: E402
+import bridge  # noqa: E402
 import games  # noqa: E402
 
 MODEL_PATH = os.path.join(games.DATA_DIR, "cache", "models", "team_v1.joblib")
@@ -94,9 +98,12 @@ def raw_logit(model, X, X_swap):
     return np.log(p) - np.log1p(-p)
 
 
-def to_p_home(logit, temperature, cols, use_tags):
-    """Calibrated p_home, plus v1's fixed-weight Smart Tagging team votes when there are tags."""
+def to_p_home(logit, temperature, cols, use_tags, bridged=False):
+    """Calibrated p_home, optionally bridged across unsure stretches (bridge.py), plus v1's
+    fixed-weight Smart Tagging team votes when there are tags."""
     s = logit / temperature
+    if bridged:
+        s = bridge.apply(s, cols["half"])
     if use_tags:
         votes = cols["tag_H_votes"].astype(np.float64) - cols["tag_A_votes"].astype(np.float64)
         s = s + C.TEAM_TAG_GAIN * votes
@@ -124,7 +131,7 @@ def verdict(rows, new, old):
 
 
 def cross_validate(ids, matches):
-    names = ["v2"] + list(VARIANTS)
+    names = ["v2"] + list(VARIANTS) + [v + "+bridge" for v in VARIANTS]
     # Pass 1: out-of-fold dead-ball probabilities and team log-odds for every match.
     oof = []
     for k, held in enumerate(ids):
@@ -169,7 +176,9 @@ def cross_validate(ids, matches):
             if n == "v2":
                 p_home = p_home_rules
             else:
-                p_home = to_p_home(o["logit"][n], temps[n], m["cols"], use_tags=False)
+                v = n.replace("+bridge", "")
+                p_home = to_p_home(o["logit"][v], temps[v], m["cols"], use_tags=False,
+                                   bridged=n.endswith("+bridge"))
             s = dead_model.score(gt, decode.decode(m["cols"], o["p_dead"], p_home, forced))
             rows[n].append(s)
             line += " | {:>7.3f} {:>7.3f} {:>10}".format(
@@ -189,9 +198,11 @@ def cross_validate(ids, matches):
     team_ok = verdict(rows, "v2team", "v2")
     plus_ok = verdict(rows, "v2team+", "v2team")
     chosen = "v2team+" if plus_ok else "v2team"
-    print("  VERDICT: team model {}; variant saved for the pipeline: {}".format(
-        "ADOPTED" if team_ok else "NOT ADOPTED (use --team rules)", chosen))
-    return chosen, temps[chosen]
+    bridge_ok = verdict(rows, chosen + "+bridge", chosen)
+    print("  VERDICT: team model {}; saved for the pipeline: {}{}".format(
+        "ADOPTED" if team_ok else "NOT ADOPTED (use --team rules)", chosen,
+        " with +bridge" if bridge_ok else ", no bridge"))
+    return chosen, temps[chosen], bridge_ok
 
 
 def main():
@@ -218,20 +229,22 @@ def main():
         matches.append(m)
 
     if args.no_cv:
-        chosen, temperature = args.variant or "v2team", 1.0
+        chosen, temperature, bridged = args.variant or "v2team", 1.0, False
     else:
         if args.variant:
             sys.exit("--variant only goes with --no-cv; the check picks the variant itself")
-        chosen, temperature = cross_validate(ids, matches)
+        chosen, temperature, bridged = cross_validate(ids, matches)
 
     model = fit(matches, chosen)
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     joblib.dump({"model": model, "features": matches[0]["team_names"][chosen],
-                 "variant": chosen, "movement": VARIANTS[chosen], "matches": ids,
+                 "variant": chosen, "movement": VARIANTS[chosen], "bridge": bridged,
+                 "matches": ids,
                  "temperature": temperature, "sklearn": sklearn.__version__,
                  "params": C.TEAM_MODEL_PARAMS}, MODEL_PATH)
-    print("\nfinal team model ({}) on {} matches, temperature {:.2f} -> "
-          "<DATA_DIR>/cache/models/team_v1.joblib".format(chosen, len(ids), temperature))
+    print("\nfinal team model ({}{}) on {} matches, temperature {:.2f} -> "
+          "<DATA_DIR>/cache/models/team_v1.joblib".format(
+              chosen, " +bridge" if bridged else "", len(ids), temperature))
 
 
 def load_model():
@@ -242,7 +255,8 @@ def load_model():
 
 def predict_home(bundle, cols, use_tags=True):
     X, X_swap, _ = inputs(cols, bundle.get("movement", False))
-    return to_p_home(raw_logit(bundle["model"], X, X_swap), bundle["temperature"], cols, use_tags)
+    return to_p_home(raw_logit(bundle["model"], X, X_swap), bundle["temperature"], cols, use_tags,
+                     bridged=bundle.get("bridge", False))
 
 
 if __name__ == "__main__":

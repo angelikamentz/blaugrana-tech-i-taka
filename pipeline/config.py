@@ -161,3 +161,10 @@ TEAM_WINDOWS_S = (2.0, 10.0)
 # v2team+: team-centre velocities over this many seconds around the frame. 2 s is long enough to
 # average out tracking jitter and short enough to catch a team pushing up after winning the ball.
 TEAM_MOVE_S = 2.0
+# +bridge (bridge.py): unsure team evidence is filled from the confident evidence on both sides
+# when both name the same team. "Confident" = the calibrated model gives one team at least 80%.
+# Not further than 15 s on either side: about the length of a typical ball gap in our tracking
+# (median 11 s, inspection aggregates), so a bridge spans a gap but not a long stretch of play.
+# Football sense and tracking aggregates only, never the public labels.
+BRIDGE_CONF_P = 0.8
+BRIDGE_MAX_S = 15.0

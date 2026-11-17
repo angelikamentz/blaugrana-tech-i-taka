@@ -117,8 +117,9 @@ def main():
         if list(bundle["features"]) != list(current):
             sys.exit("the saved team model was trained on different features; rerun "
                      "python pipeline/team_model.py")
-        print("team model: {}, temperature {:.2f}".format(
-            bundle.get("variant", "v2team"), bundle["temperature"]))
+        print("team model: {}{}, temperature {:.2f}".format(
+            bundle.get("variant", "v2team"), " +bridge" if bundle.get("bridge") else "",
+            bundle["temperature"]))
         p_home = team_model.predict_home(bundle, cols, use_tags=True)
     labels = decode.decode(cols, p_dead, p_home, forced)
     args.name = name

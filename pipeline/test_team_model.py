@@ -79,6 +79,26 @@ def main():
         assert acc > 0.9, "the toy model should separate the teams"
     bundle = {"model": model, "movement": True, "temperature": 1.0}
     assert TM.predict_home(bundle, cols).shape == home.shape
+    bundle["bridge"] = True
+    assert TM.predict_home(bundle, cols).shape == home.shape
+
+    # +bridge: 2 s confident home, 2 s unsure, then confident home / away / in the other half
+    import bridge as B
+    fps = 25
+    sure_h, unsure, sure_a = np.full(50, 3.0), np.full(50, -0.2), np.full(50, -3.0)
+    half1 = np.ones(150, np.int8)
+    same = B.apply(np.concatenate([sure_h, unsure, sure_h]), half1)
+    assert (same[50:100] > 0).all(), "unsure frames between two home stretches become home"
+    assert (np.abs(same[50:100]) <= np.log(4) + 1e-9).all(), "bridged evidence is capped"
+    diff = B.apply(np.concatenate([sure_h, unsure, sure_a]), half1)
+    assert np.allclose(diff[50:100], -0.2), "a hand-over in between is left to the decoder"
+    split = B.apply(np.concatenate([sure_h, unsure, sure_h]),
+                    np.concatenate([np.ones(100, np.int8), np.full(50, 2, np.int8)]))
+    assert np.allclose(split[50:100], -0.2), "no bridge across halftime"
+    far = B.apply(np.concatenate([sure_h, np.full(40 * fps, -0.2), sure_h]),
+                  np.ones(100 + 40 * fps, np.int8))
+    assert np.isclose(far[50 + 20 * fps], -0.2), "no bridge further than BRIDGE_MAX_S"
+    print("bridge: fills same-team gaps, leaves hand-overs, halftime and long gaps alone")
     print("OK")
 
 
