@@ -1,6 +1,6 @@
 # Ball possession from automatic tracking: technical document
 
-**Team:** Blaugrana Tech-i-Taka · **Members:** Ana Baltaretu, Angeliki Mentzelopoulou, Diego (GitHub: Bcrra10go)
+**Team:** Blaugrana Tech-i-Taka · **Members:** Ana Baltaretu, Angeliki Mentzelopoulou, Diego Becerra
 · **Challenge:** More Than A Hack 2027, BAR-ATH possession (Phase 1)
 · **Repository:** https://github.com/angelikamentz/blaugrana-tech-i-taka · **Submitted file:** `Blaugrana_Tech-i-Taka.csv`, built by
 `python pipeline/run.py --dead model` (version **v2**)
